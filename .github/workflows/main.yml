@@ -1,29 +1,34 @@
-name: Stream Image to Server
+name: Split Image For Manual Transfer
 
 on:
   workflow_dispatch:
 
 jobs:
-  stream:
+  build-and-split:
     runs-on: ubuntu-latest
     steps:
-      - name: Free Space
-        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android
-          
-      - name: Pull and Stream
-        env:
-          SERVER_IP: ${{ secrets.SERVER_IP }}
-          SERVER_USER: ${{ secrets.SERVER_USER }}
-          SERVER_PW: ${{ secrets.SERVER_PW }}
+      - name: Maximize Disk Space
         run: |
-          # 安装 sshpass 处理密码
-          sudo apt-get update && sudo apt-get install -y sshpass
+          # 极限清理：删掉没用的安卓、.NET、Haskell 环境
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
+          sudo docker image prune -a -f
+          df -h # 打印空间看看，通常能剩下 30GB+
           
-          # 拉取镜像
+      - name: Pull and Split Image
+        run: |
+          # 1. 拉取镜像
           docker pull dexmal/dexbotic_benchmark:latest
           
-          # 【核心】流式传输：指定端口 8041
-          # 注意：ssh 后面紧跟 -p 8041
-          docker save dexmal/dexbotic_benchmark:latest | gzip | \
-          sshpass -p "$SERVER_PW" ssh -p 8041 -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP \
-          "cat > /home/$SERVER_USER/dexbotic_benchmark.tar.gz"
+          # 2. 创建存放分块的目录
+          mkdir -p ./splits
+          
+          # 3. 导出 -> 压缩 -> 切割 (每块 2GB)
+          # 这样做不产生中间巨大的 tar 文件，节省磁盘
+          docker save dexmal/dexbotic_benchmark:latest | gzip | split -b 2G - ./splits/dexbotic.tar.gz.part_
+          
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: dexbotic-chunks
+          path: ./splits/
+          retention-days: 1
