@@ -1,0 +1,27 @@
+name: Stream Image to Server
+
+on:
+  workflow_dispatch:
+
+jobs:
+  stream:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Free Space
+        run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android # 还是要清一下，给 pull 留空间
+          
+      - name: Pull and Stream
+        env:
+          SERVER_IP: ${{ secrets.SERVER_IP }}
+          SERVER_USER: ${{ secrets.SERVER_USER }}
+          SERVER_PW: ${{ secrets.SERVER_PW }}
+        run: |
+          # 安装 sshpass 方便处理密码
+          sudo apt-get update && sudo apt-get install -y sshpass
+          
+          # 拉取镜像
+          docker pull dexmal/dexbotic_benchmark:latest
+          
+          docker save dexmal/dexbotic_benchmark:latest | gzip | \
+          sshpass -p "$SERVER_PW" ssh -o StrictHostKeyChecking=no $SERVER_USER@$SERVER_IP \
+          "cat > /home/$SERVER_USER/dexbotic_benchmark.tar.gz"
