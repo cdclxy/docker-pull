@@ -1,34 +1,38 @@
-name: Split Image For Manual Transfer
+name: Extreme Space Saving - Raw Split
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-and-split:
+  split-raw:
     runs-on: ubuntu-latest
     steps:
       - name: Maximize Disk Space
         run: |
-          # 极限清理：删掉没用的安卓、.NET、Haskell 环境
+          # 1. 极限清理：把所有能删的预装软件全删了，腾出约 30GB 纯净空间
           sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /usr/local/share/boost /usr/lib/jvm
           sudo docker image prune -a -f
-          df -h # 打印空间看看，通常能剩下 30GB+
           
-      - name: Pull and Split Image
+      - name: Pull and Split Raw (Direct Pipe)
         run: |
-          # 1. 拉取镜像
+          # 2. 拉取镜像
           docker pull dexmal/dexbotic_benchmark:latest
           
-          # 2. 创建存放分块的目录
+          # 3. 创建存放目录
           mkdir -p ./splits
           
-          # 3. 导出 -> 压缩 -> 切割 (每块 2GB)
-          # 这样做不产生中间巨大的 tar 文件，节省磁盘
-          docker save dexmal/dexbotic_benchmark:latest | gzip | split -b 2G - ./splits/dexbotic.tar.gz.part_
+          # 4. 核心：直接导出并切片
+          # 去掉 gzip 环节，减少 CPU 和内存缓冲区压力
+          # split 会在每攒够 3GB 数据时才往磁盘写一个小文件
+          docker save dexmal/dexbotic_benchmark:latest | split -b 3G - ./splits/dexbotic.tar.part_
+          
+          # 检查最后磁盘状态
+          df -h
           
       - name: Upload Artifact
+        if: always() # 哪怕中途空间爆了，也把已经切好的部分传上来，方便分析
         uses: actions/upload-artifact@v4
         with:
-          name: dexbotic-chunks
+          name: dexbotic-raw-chunks
           path: ./splits/
           retention-days: 1
